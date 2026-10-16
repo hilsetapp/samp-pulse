@@ -1,4 +1,4 @@
-[English](README.md) | [Русский](README.ru.md) | **Español** | [Português](README.pt.md)
+[Русский](README.md) | [English](README.en.md) | **Español** | [Português](README.pt.md)
 
 # Pulso SA-MP
 

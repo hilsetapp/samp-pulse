@@ -1,69 +1,90 @@
-**English** | [Русский](README.ru.md) | [Español](README.es.md) | [Português](README.pt.md)
+**Русский** | [English](README.en.md) | [Español](README.es.md) | [Português](README.pt.md)
 
-# SA-MP Pulse
+# Пульс САМП
 
-Live player counts for SA-MP and open.mp servers. One page, 1200+ servers, 24 hour history, filters and search. No login, no ads, no build step.
+**Живой онлайн серверов SA-MP и open.mp - в браузере, без лаунчеров и регистраций.**
 
-**Live:** https://hilsetapp.github.io/samp-pulse/
+Открыл страницу - сразу видно: сколько людей играет во всём САМП прямо сейчас, где именно (топ серверов),
+как менялся онлайн за сутки и где сидят русскоязычные игроки. Есть поиск, фильтры по языку и режиму,
+избранное и кнопка «Играть», которая открывает клиент прямо на сервере.
 
-## What it shows
+> **Живая версия: https://hilsetapp.github.io/samp-pulse/**
 
-- Online right now for every server: players and slots.
-- Top 5 servers by players, plus a chart of total online for the day.
-- History per server: how the population changed over the day.
-- Filters by language, country and gamemode, search by name or IP.
-- Favourites (kept in your browser) and one click copy of the IP.
-- Direct link to a single server: `https://hilsetapp.github.io/samp-pulse/#s=IP:port`
-  Example: `#s=127.0.0.1:7777` opens the card of that server.
-- The page tries the live API first and falls back to the latest snapshot if the API is slow or blocked.
+---
 
-## Where the data comes from
+## Что умеет
 
-1. The browser asks `api.open.mp/servers` for the current list.
-2. A GitHub Action runs `tools/snapshot.py` every 15 minutes and commits the result to the `data` branch.
-3. The site build copies that snapshot next to the page, so there is always a same origin copy: `live_min.json`, `servers.json`, `online-YYYY-MM.jsonl`, `meta.json`.
-4. If the live API is not reachable (some providers block it), the page keeps working on the snapshot and says at the top when that snapshot was taken.
+- **Живой онлайн** - список серверов тянется прямо из браузера посетителя, всегда свежие цифры
+- **Топ сейчас** - пятёрка самых людных серверов с заполненностью
+- **График за сутки** - общий онлайн и отдельно русскоязычный сегмент
+- **История по серверам** - средний онлайн и пик по часам, неделя назад тоже видна
+- **Поиск и фильтры** - по названию, IP, режиму; язык, РП/ДМ/стант/дрифт, open.mp или SA-MP, только живые, без пароля
+- **Избранное** - звёздочка на сервер, список хранится в браузере
+- **Ссылка на сервер** - `#s=IP:порт`, можно кинуть другу в дискорд
+- **Свой IP**: кнопка «скопировать» рядом с каждым сервером
+- Русский интерфейс, работает на телефоне, тёмная тема как в старом браузере серверов (но по-человечески)
 
-History is written as one line per 15 minutes, so over time the project builds its own open dataset of SA-MP online. The `data` branch is public.
+## Как это работает
 
-## Run it locally
+Никакого сервера и базы данных. Всё держится на трёх публичных кусках:
 
-```
-git clone https://github.com/hilsetapp/samp-pulse.git
+1. **Живой список** - `https://api.open.mp/servers` (открытый список серверов open.mp, отдаёт онлайн, режим, язык и версию). Сайт дёргает его прямо из браузера игрока.
+2. **История** - маленький скрипт `tools/snapshot.py` раз в 15 минут снимает список и складывает историю в ветку `data` этого же репозитория через GitHub Actions.
+3. **GitHub Pages** - отдаёт сам сайт.
+
+Если API open.mp недоступен, сайт тихо показывает последний снимок и честно об этом пишет.
+
+## Гайд для чайников: как поднять своё такое же
+
+1. **Форкни репозиторий.** Нажми кнопку **Fork** справа сверху на странице GitHub.
+
+2. **Включи GitHub Pages.** В своём форке: `Settings` → слева `Pages` → в разделе *Build and deployment*
+   выбери Source: **Deploy from a branch**, ветку **main**, папку **/ (root)** → `Save`.
+   Через пару минут сайт будет доступен по адресу `https://ТВОЙ_НИК.github.io/samp-pulse/`.
+
+3. **Включи сбор истории.** Опять `Settings` → слева `Actions` → `General` → пролистай до
+   *Workflow permissions* → выбери **Read and write permissions** → `Save`. Это нужно, чтобы
+   сборщик мог писать в ветку `data`.
+
+4. **Запусти сборщик в первый раз.** Вкладка `Actions` → слева workflow **snapshot** →
+   кнопка `Run workflow` → `Run workflow`. Через минуту появится ветка `data` с первыми файлами.
+   Дальше он будет работать сам по расписанию каждые 15 минут.
+
+5. **Зайди на свой сайт** и убедись, что цифры живые. Всё, готово.
+
+Хочешь погонять локально - нужен только Python:
+
+```bash
+git clone https://github.com/ТВОЙ_НИК/samp-pulse.git
 cd samp-pulse
-python -m http.server 8080
+python3 -m http.server 8000        # и открыть http://localhost:8000
 ```
 
-Open http://localhost:8080 . No npm, no bundler: plain HTML, CSS and JavaScript. Python is only needed for the snapshot tool.
+Первый снимок истории руками:
 
-Want demo data without waiting for a snapshot? Run `python tools/demo_seed.py` and it will write a set of demo files you can point the page at.
-
-## Your own copy (fork)
-
-1. Fork the repository.
-2. Settings -> Pages -> Source: GitHub Actions.
-3. Actions -> "snapshot" -> Run workflow. The first run fills the `data` branch and the site.
-4. Your site will be at `https://YOUR-NAME.github.io/samp-pulse/`.
-
-The workflow runs on a schedule and on every push, so a fork keeps updating itself.
-
-## Structure
-
-```
-index.html              the page
-js/app.js               all logic: fetch, fallback, filters, history, chart
-tools/snapshot.py       takes the open.mp list and writes the data files
-tools/demo_seed.py      generates demo data for offline work
-data-seed/              example data files
-.github/workflows/      the 15 minute snapshot job
+```bash
+cd tools && python3 snapshot.py    # положит файлы в текущую папку
 ```
 
-## Data and privacy
+## Структура
 
-- Favourites and the last open server stay in `localStorage`, nothing is sent anywhere.
-- No cookies, no analytics, no accounts.
-- Server names, IPs and player counts are public data from open.mp, collected without touching the servers themselves.
+```
+index.html            # страница (шапка, график, фильтры, таблица, карточка сервера)
+styles.css            # тёмная тема
+js/app.js             # вся логика: данные, фильтры, графики (чистый SVG, без библиотек)
+tools/snapshot.py     # снимок списка серверов и история (гоняется из GitHub Actions)
+tools/demo_seed.py    # демо-история для локального просмотра
+.github/workflows/    # расписание: снимок каждые 15 минут + пуша Pages
+data/                 # ветка с историей (в main её нет)
+```
 
-## License
+## Данные и приватность
 
-MIT. The data belongs to the server owners and to the open.mp project.
+- Ничего не логируем, не собираем и не отправляем на свои серверы: у проекта их просто нет.
+- Избранное и прочие настройки хранятся в `localStorage` твоего браузера.
+- История онлайна - открытые данные, лежат в ветке `data` этого репозитория, бери и пользуйся.
+- Проект не связан с open.mp и командой SA-MP. Ссылки на API - публичные.
+
+## Лицензия
+
+MIT. Делай что хочешь, только не выдавай за своё авторство кода без упоминания.
