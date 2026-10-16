@@ -10,11 +10,28 @@
 
   const DATA_BASE = new URLSearchParams(location.search).get("data")
     || "https://raw.githubusercontent.com/hilsetapp/samp-pulse/data";
+  /* запасные зеркала: raw иногда тормозит, jsDelivr отдаёт ту же ветку */
+  const DATA_MIRRORS = [
+    DATA_BASE,
+    "https://cdn.jsdelivr.net/gh/hilsetapp/samp-pulse@data",
+  ];
+  const isLocal = /^(\/|\.|http:\/\/local)/.test(DATA_BASE);
+
+  async function fromMirrors(path, json = true, ms = 15000) {
+    let lastErr = null;
+    for (const base of DATA_MIRRORS) {
+      try {
+        return json ? await getJSON(`${base}/${path}`, { timeoutMs: ms }) : await getText(`${base}/${path}`, { timeoutMs: ms });
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error("no mirrors");
+  }
   const LIVE_API = "https://api.open.mp/servers";
   const PAGE = 120;
   const REFRESH_MS = 5 * 60 * 1000;
 
   const state = {
+    startedAt: Date.now(),
     live: null,          // массив нормализованных серверов
     history: [],         // точки онлайна {t,p,s,ru,rs}
     serverHist: {},      // ip -> [{t, avg, peak}]
@@ -93,44 +110,90 @@
     }));
   }
 
+  /* запрос с таймаутом: без него медленный API подвешивает страницу навсегда */
   async function getJSON(url, opts = {}) {
-    const res = await fetch(url, { cache: "no-store", ...opts });
-    if (!res.ok) throw new Error("http " + res.status);
-    return res.json();
+    const ms = opts.timeoutMs || 20000;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ms);
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: ctl.signal, ...opts });
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function getText(url, opts = {}) {
+    const ms = opts.timeoutMs || 20000;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ms);
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: ctl.signal, ...opts });
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.text();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /* ────────── загрузка данных ────────── */
+  function applyLive(raw) {
+    state.live = raw.map(normalizeRow);
+    state.fetchedAt = Date.now();
+    state.fallback = false;
+  }
+  function applySnapshot(min) {
+    state.live = normalizeMin(min.s);
+    state.fetchedAt = (min.t || 0) * 1000;
+    state.fallback = true;
+  }
+  function renderAll() {
+    updateFreshness(); renderChips(); renderTop5(); renderRows(true); renderChart();
+  }
+
   async function loadLive() {
     const btn = $("#btn-refresh");
     btn.disabled = true;
-    try {
-      const raw = await getJSON(LIVE_API, { headers: { Accept: "application/json" } });
-      state.live = raw.map(normalizeRow);
-      state.fetchedAt = Date.now();
-      state.fallback = false;
-    } catch (e) {
-      if (!state.live) {
-        /* API недоступен - берём последний снимок из ветки данных */
-        try {
-          const min = await getJSON(DATA_BASE + "/live_min.json");
-          state.live = normalizeMin(min.s);
-          state.fetchedAt = (min.t || 0) * 1000;
-          state.fallback = true;
-        } catch (_) {
-          state.live = state.live || [];
-          showNotice("Не удалось получить список серверов ни из API, ни из снимка. Проверь сеть и нажми «Обновить».");
-        }
+    const snapP = fromMirrors("live_min.json", true, 12000).catch(() => null);
+
+    /* первая попытка живого списка - короткая: не ответил за 8 секунд,
+       рисуем снимок, а живой ответ дотягиваем в фоне */
+    let raw = null, lastErr = null;
+    try { raw = await getJSON(LIVE_API, { headers: { Accept: "application/json" }, timeoutMs: 8000 }); }
+    catch (e) { lastErr = e; }
+
+    let usedSnapshot = false;
+    if (raw) {
+      applyLive(raw);
+    } else {
+      const min = await snapP;
+      if (min) {
+        applySnapshot(min);
+        usedSnapshot = true;
+        showNotice("API open.mp не ответил за 8 секунд, показываю последний снимок (обновляется каждые 15 минут). Живые цифры вернутся сами, как только API ответит.");
+      } else if (!state.live || !state.live.length) {
+        state.live = state.live || [];
+        if (!isLocal) showNotice("Не удалось получить список серверов: API open.mp не отвечает, и запасной снимок ещё не готов (появится в первые минуты работы сборщика). Нажми «Обновить» ещё раз.");
       } else {
         showNotice("Обновление не прошло, показываю прежние данные. Кнопка «Обновить» попробует ещё раз.");
       }
-    } finally {
-      btn.disabled = false;
     }
-    updateFreshness();
-    renderChips();
-    renderTop5();
-    renderRows(true);
-    renderChart();
+    btn.disabled = false;
+    renderAll();
+
+    /* если показали снимок - в фоне ещё раз пробуем живой список */
+    if (usedSnapshot) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const raw2 = await getJSON(LIVE_API, { headers: { Accept: "application/json" }, timeoutMs: 11000 });
+          applyLive(raw2);
+          const n = $("#notice"); n.hidden = true;
+          renderAll();
+          break;
+        } catch (e) { /* молча ждём следующего раза */ }
+      }
+    }
   }
 
   async function loadHistory() {
@@ -141,18 +204,18 @@
 
     const parse = (txt) => txt.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     let points = [];
-    try { points = parse(await (await fetch(`${DATA_BASE}/${cur}`)).text()); } catch {}
+    try { points = parse(await fromMirrors(cur, false)); } catch {}
     if (points.length < 4) {
-      try { points = parse(await (await fetch(`${DATA_BASE}/${prev}`)).text()).concat(points); } catch {}
+      try { points = parse(await fromMirrors(prev, false)).concat(points); } catch {}
     }
     points.sort((a, b) => a.t - b.t);
     /* в файлах время в секундах, в остальном коде - в миллисекундах */
     points.forEach((p) => { if (p.t < 1e12) p.t *= 1000; });
     state.history = points;
 
-    try { state.meta = await getJSON(DATA_BASE + "/meta.json"); } catch {}
+    try { state.meta = await fromMirrors("meta.json"); } catch {}
     try {
-      const hist = await getJSON(DATA_BASE + "/servers.json");
+      const hist = await fromMirrors("servers.json");
       state.serverHist = {};
       for (const [ip, rec] of Object.entries(hist)) {
         const pts = (rec.b || []).map(([t, sum, n, peak]) => ({ t: t * 1000, avg: Math.round(sum / n), peak }));
@@ -176,7 +239,12 @@
 
   function updateFreshness() {
     const el = $("#c-fresh");
-    if (!state.fetchedAt) { el.textContent = "обновлено …"; return; }
+    if (!state.fetchedAt) {
+      const waited = Math.round((Date.now() - (state.startedAt || Date.now())) / 1000);
+      el.textContent = waited > 25 ? "сервер не отвечает…" : "загружаю список…";
+      el.classList.toggle("stale", waited > 25);
+      return;
+    }
     const mins = Math.max(0, Math.round((Date.now() - state.fetchedAt) / 60000));
     const t = new Date(state.fetchedAt);
     const hhmm = t.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
@@ -594,9 +662,15 @@
 
     await loadHistory();
     renderChart();
+    const stuck = setTimeout(() => {
+      if (!state.live || !state.live.length) {
+        document.querySelectorAll("#c-players, #c-active, #c-ru, #count").forEach((e) => { if (e.textContent === "…") e.textContent = "—"; });
+        renderRows(false);
+      }
+    }, 70000);
     await loadLive();
+    clearTimeout(stuck);
 
-    if (state.fallback) showNotice("Список open.mp сейчас не ответил, показываю последний снимок. Данные могут отставать на пару минут.");
     if (location.hash.startsWith("#s=")) {
       const ip = decodeURIComponent(location.hash.slice(3));
       if ((state.live || []).some((s) => s.ip === ip)) openModal(ip);
