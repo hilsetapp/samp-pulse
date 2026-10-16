@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hilsetapp.github.io/samp-pulse/sitemap.xml
