@@ -119,8 +119,10 @@ def main():
         json.dump(hist, f, ensure_ascii=False, separators=(",", ":"))
 
     # ---------- 4) meta ----------
+    files = sorted(fn for fn in os.listdir(".") if fn.startswith("online-") and fn.endswith(".jsonl"))
     meta = {"updated": now, "interval_min": 15, "servers": len(compact),
-            "players": total_players, "active": active, "ru_players": ru_players, "ru_servers": len(ru)}
+            "players": total_players, "active": active, "ru_players": ru_players, "ru_servers": len(ru),
+            "files": files}
     with open("meta.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, separators=(",", ":"))
 

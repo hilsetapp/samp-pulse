@@ -52,7 +52,8 @@ with open(os.path.join(DST, "servers.json"), "w", encoding="utf-8") as f:
 
 json.dump({"updated": now, "interval_min": 15, "servers": len(live["s"]), "players": total_now,
            "active": sum(1 for c in live["s"] if c[2] > 0), "ru_players": ru_now,
-           "ru_servers": sum(1 for c in live["s"] if "russian" in (c[5] or "").lower())},
+           "ru_servers": sum(1 for c in live["s"] if "russian" in (c[5] or "").lower()),
+           "files": sorted(f for f in os.listdir(DST) if f.startswith("online-") and f.endswith(".jsonl"))},
           open(os.path.join(DST, "meta.json"), "w"), ensure_ascii=False)
 
 print("demo data ready:", len(live["s"]), "servers,", len(hist), "with history")

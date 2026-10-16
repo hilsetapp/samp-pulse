@@ -8,20 +8,23 @@
   const $ = (s) => document.querySelector(s);
   const fmt = new Intl.NumberFormat("ru-RU");
 
-  const DATA_BASE = new URLSearchParams(location.search).get("data")
-    || "https://raw.githubusercontent.com/hilsetapp/samp-pulse/data";
-  /* запасные зеркала: raw иногда тормозит у отдельных провайдеров */
+  /* главный источник - папка data рядом с сайтом: тот же домен, что у страницы.
+     если сайт открылся, данные тоже придут, чужие домены не нужны.
+     зеркала ниже - запас, если файл открыли откуда-то ещё */
+  const DATA_BASE = new URLSearchParams(location.search).get("data") || "data";
   const DATA_MIRRORS = [
     DATA_BASE,
+    "https://raw.githubusercontent.com/hilsetapp/samp-pulse/data",
     "https://raw.githack.com/hilsetapp/samp-pulse/data",
   ];
-  const isLocal = /^(\/|\.|http:\/\/local)/.test(DATA_BASE);
 
-  async function fromMirrors(path, json = true, ms = 15000) {
+  async function fromMirrors(path, json = true, ms = 8000) {
+    /* номер минуты в ссылке: обходит кэш Pages, но не гоняет файлы лишний раз */
+    const v = Math.floor(Date.now() / 60000);
     let lastErr = null;
     for (const base of DATA_MIRRORS) {
       try {
-        return json ? await getJSON(`${base}/${path}`, { timeoutMs: ms }) : await getText(`${base}/${path}`, { timeoutMs: ms });
+        return json ? await getJSON(`${base}/${path}?v=${v}`, { timeoutMs: ms }) : await getText(`${base}/${path}?v=${v}`, { timeoutMs: ms });
       } catch (e) { lastErr = e; }
     }
     throw lastErr || new Error("no mirrors");
@@ -38,6 +41,7 @@
     meta: null,
     fetchedAt: 0,
     fallback: false,
+    failed: false,
     shown: PAGE,
     filters: { q: "", lang: "all", mode: "all", ver: "all", online: true, nopass: false, fav: false, sort: "players" },
     fav: new Set(JSON.parse(localStorage.getItem("samp-pulse:fav") || "[]")),
@@ -152,48 +156,58 @@
     updateFreshness(); renderChips(); renderTop5(); renderRows(true); renderChart();
   }
 
+  /* два источника стартуют одновременно: живой список open.mp и сохранённый снимок.
+     что ответило первым, то и на экране; живые цифры всегда имеют приоритет */
   async function loadLive() {
     const btn = $("#btn-refresh");
     btn.disabled = true;
-    const snapP = fromMirrors("live_min.json", true, 12000).catch(() => null);
 
-    /* первая попытка живого списка - короткая: не ответил за 8 секунд,
-       рисуем снимок, а живой ответ дотягиваем в фоне */
-    let raw = null, lastErr = null;
-    try { raw = await getJSON(LIVE_API, { headers: { Accept: "application/json" }, timeoutMs: 8000 }); }
-    catch (e) { lastErr = e; }
+    let liveGot = false, snapShown = false;
 
-    let usedSnapshot = false;
-    if (raw) {
-      applyLive(raw);
-    } else {
-      const min = await snapP;
-      if (min) {
+    const liveP = getJSON(LIVE_API, { headers: { Accept: "application/json" }, timeoutMs: 6000 })
+      .then((raw) => {
+        liveGot = true;
+        applyLive(raw);
+        state.failed = false;
+        hideNotice();
+        renderAll();
+      })
+      .catch(() => {});
+
+    const snapP = fromMirrors("live_min.json", true, 6000)
+      .then((min) => {
+        if (liveGot || state.live) return;
         applySnapshot(min);
-        usedSnapshot = true;
-        showNotice("API open.mp не ответил за 8 секунд, показываю последний снимок (обновляется каждые 15 минут). Живые цифры вернутся сами, как только API ответит.");
-      } else if (!state.live || !state.live.length) {
-        state.live = state.live || [];
-        if (!isLocal) showNotice("Не удалось получить список серверов: API open.mp не отвечает, и запасной снимок ещё не готов (появится в первые минуты работы сборщика). Нажми «Обновить» ещё раз.");
-      } else {
-        showNotice("Обновление не прошло, показываю прежние данные. Кнопка «Обновить» попробует ещё раз.");
+        snapShown = true;
+        state.failed = false;
+        renderAll();   /* цифры на экране сразу, пугать предупреждением пока нечем */
+      })
+      .catch(() => {});
+
+    await Promise.allSettled([liveP, snapP]);
+
+    if (!state.live || !state.live.length) {
+      state.failed = true;
+      state.fetchedAt = 0;
+      showNotice("Не получилось загрузить ни живой список, ни сохранённый снимок. Так бывает, когда сеть режет api.open.mp. Нажми «Обновить» через полминуты.");
+    } else if (snapShown && !liveGot) {
+      /* снимок на экране, живой список молчит: честно говорим и тихо пробуем ещё */
+      state.failed = false;
+      showNotice("Живой список серверов не ответил, показываю последний сохранённый снимок (обновляется каждые 15 минут). Как только API ответит, цифры обновятся сами.");
+      for (let attempt = 0; attempt < 2 && !liveGot; attempt++) {
+        try {
+          const raw2 = await getJSON(LIVE_API, { headers: { Accept: "application/json" }, timeoutMs: 10000 });
+          liveGot = true;
+          applyLive(raw2);
+          state.failed = false;
+          hideNotice();
+          renderAll();
+        } catch (e) { /* молча пробуем ещё раз */ }
       }
     }
+
     btn.disabled = false;
     renderAll();
-
-    /* если показали снимок - в фоне ещё раз пробуем живой список */
-    if (usedSnapshot) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const raw2 = await getJSON(LIVE_API, { headers: { Accept: "application/json" }, timeoutMs: 11000 });
-          applyLive(raw2);
-          const n = $("#notice"); n.hidden = true;
-          renderAll();
-          break;
-        } catch (e) { /* молча ждём следующего раза */ }
-      }
-    }
   }
 
   async function loadHistory() {
@@ -202,18 +216,23 @@
     const prevD = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
     const prev = `online-${prevD.getUTCFullYear()}-${String(prevD.getUTCMonth() + 1).padStart(2, "0")}.jsonl`;
 
+    try { state.meta = await fromMirrors("meta.json"); } catch {}
+
+    /* список файлов истории пишет сборщик: не дёргаем то, чего нет */
+    const files = (state.meta && Array.isArray(state.meta.files) && state.meta.files.length)
+      ? state.meta.files.slice(-2)
+      : [prev, cur];
+
     const parse = (txt) => txt.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     let points = [];
-    try { points = parse(await fromMirrors(cur, false)); } catch {}
-    if (points.length < 4) {
-      try { points = parse(await fromMirrors(prev, false)).concat(points); } catch {}
+    for (const f of files) {
+      try { points = points.concat(parse(await fromMirrors(f, false))); } catch {}
     }
     points.sort((a, b) => a.t - b.t);
     /* в файлах время в секундах, в остальном коде - в миллисекундах */
     points.forEach((p) => { if (p.t < 1e12) p.t *= 1000; });
     state.history = points;
 
-    try { state.meta = await fromMirrors("meta.json"); } catch {}
     try {
       const hist = await fromMirrors("servers.json");
       state.serverHist = {};
@@ -241,19 +260,32 @@
     const el = $("#c-fresh");
     if (!state.fetchedAt) {
       const waited = Math.round((Date.now() - (state.startedAt || Date.now())) / 1000);
-      el.textContent = waited > 25 ? "сервер не отвечает…" : "загружаю список…";
-      el.classList.toggle("stale", waited > 25);
+      if (state.failed) {
+        el.textContent = "данных нет, жми «Обновить»";
+        el.classList.add("stale");
+        return;
+      }
+      el.textContent = waited > 12 ? "нет ответа, пробую ещё…" : "загружаю список…";
+      el.classList.toggle("stale", waited > 12);
       return;
     }
     const mins = Math.max(0, Math.round((Date.now() - state.fetchedAt) / 60000));
     const t = new Date(state.fetchedAt);
     const hhmm = t.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-    el.textContent = mins < 1 ? `обновлено только что` : `обновлено ${hhmm} · ${mins} мин назад`;
+    el.textContent = state.fallback
+      ? (mins < 1 ? `снимок только что` : `снимок от ${hhmm} · ${mins} мин назад`)
+      : (mins < 1 ? `обновлено только что` : `обновлено ${hhmm} · ${mins} мин назад`);
     el.classList.toggle("stale", mins > 20 || state.fallback);
+  }
+
+  function hideNotice() {
+    const el = $("#notice");
+    if (el) el.hidden = true;
   }
 
   function showNotice(msg) {
     const el = $("#notice");
+    if (!el) return;
     el.textContent = msg;
     el.hidden = false;
   }

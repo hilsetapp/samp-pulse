@@ -1,6 +1,9 @@
 name: snapshot
 
-# Снимок списка серверов и запись истории в ветку data.
+# Делает две вещи:
+# 1) снимает свежий список серверов и дописывает историю в ветку data;
+# 2) собирает сайт вместе с этими данными и публикует на GitHub Pages.
+# Так браузер берёт данные с того же домена, что и саму страницу.
 # Запускается каждые 15 минут (по возможности), по push в main и руками.
 
 on:
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   snapshot:
+    name: снимок и история
     runs-on: ubuntu-latest
     steps:
       - name: Код (ветка main)
@@ -69,3 +73,48 @@ jobs:
             git push origin HEAD:data
           fi
           echo "готово: $(git log --oneline -1)"
+
+  publish:
+    name: сайт с данными
+    needs: snapshot
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Код сайта
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Свежие данные
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: data
+
+      - name: Собрать сайт с данными
+        run: |
+          mkdir -p _site/data
+          cp app/index.html app/styles.css _site/
+          cp -r app/js app/assets _site/
+          find data -maxdepth 1 -type f \( -name "*.json" -o -name "*.jsonl" \) -exec cp {} _site/data/ \;
+          echo "--- в сборке:"
+          ls -la _site
+          echo "--- данные:"
+          ls -la _site/data
+
+      - name: Подготовить Pages
+        uses: actions/configure-pages@v5
+
+      - name: Выложить сборку
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Опубликовать
+        id: deploy
+        uses: actions/deploy-pages@v4
