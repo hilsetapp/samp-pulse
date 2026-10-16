@@ -1,7 +1,7 @@
 name: snapshot
 
 # Снимок списка серверов и запись истории в ветку data.
-# Запускается каждые 15 минут (по возможности) и руками с вкладки Actions.
+# Запускается каждые 15 минут (по возможности), по push в main и руками.
 
 on:
   schedule:
@@ -26,26 +26,26 @@ jobs:
         with:
           path: app
 
-      - name: Данные (ветка data, если уже существует)
-        uses: actions/checkout@v4
-        with:
-          ref: data
-          path: data
-        continue-on-error: true
-
-      - name: Подготовить папку данных
+      - name: Данные (ветка data или с нуля)
+        env:
+          TK: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ ! -d data/.git ]; then
+          set -e
+          if git clone -q --branch data "https://x-access-token:${TK}@github.com/${REPO}.git" data 2>/dev/null; then
+            echo "ветка data найдена, продолжаем историю"
+          else
             echo "ветки data нет - создаём с нуля"
             rm -rf data
             mkdir -p data
-            cd data
-            git init -q -b data
-            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+            git -C data init -q -b data
+            git -C data remote add origin "https://x-access-token:${TK}@github.com/${REPO}.git"
           fi
           cd data
           git config user.name "samp-pulse-bot"
           git config user.email "samp-pulse-bot@users.noreply.github.com"
+          git checkout -B data
+          echo "папка данных готова: $(pwd), ветка: $(git branch --show-current || echo data)"
 
       - name: Собрать снимок
         run: |
@@ -58,8 +58,8 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "изменений нет, ничего не пишем"
-          else
-            git commit -q -m "снимок $(date -u +'%Y-%m-%d %H:%M') UTC"
-            git push -q origin data
-            echo "готово: $(git log --oneline -1)"
+            exit 0
           fi
+          git commit -q -m "снимок $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git push origin HEAD:data || { echo "первая попытка не прошла, повтор"; sleep 5; git push origin HEAD:data; }
+          echo "готово: $(git log --oneline -1)"

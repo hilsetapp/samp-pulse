@@ -10,10 +10,10 @@
 
   const DATA_BASE = new URLSearchParams(location.search).get("data")
     || "https://raw.githubusercontent.com/hilsetapp/samp-pulse/data";
-  /* запасные зеркала: raw иногда тормозит, jsDelivr отдаёт ту же ветку */
+  /* запасные зеркала: raw иногда тормозит у отдельных провайдеров */
   const DATA_MIRRORS = [
     DATA_BASE,
-    "https://cdn.jsdelivr.net/gh/hilsetapp/samp-pulse@data",
+    "https://raw.githack.com/hilsetapp/samp-pulse/data",
   ];
   const isLocal = /^(\/|\.|http:\/\/local)/.test(DATA_BASE);
 
