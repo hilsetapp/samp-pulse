@@ -61,5 +61,11 @@ jobs:
             exit 0
           fi
           git commit -q -m "снимок $(date -u +'%Y-%m-%d %H:%M') UTC"
-          git push origin HEAD:data || { echo "первая попытка не прошла, повтор"; sleep 5; git push origin HEAD:data; }
+          if ! git push origin HEAD:data; then
+            echo "первая попытка не прошла, подтягиваю свежее и повторяю"
+            sleep 5
+            git fetch -q origin data
+            git rebase origin/data || git rebase --abort
+            git push origin HEAD:data
+          fi
           echo "готово: $(git log --oneline -1)"
