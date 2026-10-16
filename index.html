@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAMP Пульс - живой онлайн серверов SA-MP и open.mp</title>
+  <meta name="description" content="Пульс САМП: кто играет прямо сейчас. 1200+ серверов SA-MP и open.mp, живой онлайн, история за сутки, поиск и фильтры. Открытые данные, открытый код." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="SAMP Пульс - живой онлайн серверов" />
+  <meta property="og:description" content="Кто играет прямо сейчас: живой онлайн, история за сутки, топ серверов. Без лаунчеров и регистраций." />
+  <meta property="og:image" content="assets/og-banner.png" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23171a1f'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23ffb020' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='5' fill='none' stroke='%23ffb020' stroke-width='2' opacity='.55'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%23ffb020'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ══════════ шапка ══════════ -->
+<header class="top">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="17.5" fill="none" stroke="var(--amber)" stroke-width="2.5"/>
+      <circle cx="20" cy="20" r="11" fill="none" stroke="var(--amber)" stroke-width="2" opacity=".5"/>
+      <circle cx="20" cy="20" r="4.5" fill="var(--amber)"/>
+      <path d="M20 2.5 A 17.5 17.5 0 0 1 37.5 20" fill="none" stroke="var(--teal)" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+    <div class="brand-text">
+      <h1>SAMP ПУЛЬС</h1>
+      <p>живой онлайн серверов</p>
+    </div>
+  </div>
+
+  <div class="chips" id="chips">
+    <span class="chip"><b id="c-players">…</b> игроков сейчас</span>
+    <span class="chip"><b id="c-active">…</b> серверов с людьми</span>
+    <span class="chip chip-ru">🇷🇺 <b id="c-ru">…</b> играют на русских</span>
+    <span class="chip chip-fresh" id="c-fresh" title="когда мы последний раз опрашивали список">обновлено …</span>
+  </div>
+
+  <div class="top-actions">
+    <button class="btn btn-ghost" id="btn-random" title="Кинуть меня на случайный живой сервер">🎲 Случайный</button>
+    <button class="btn" id="btn-refresh" title="Обновить прямо сейчас">↻ Обновить</button>
+  </div>
+</header>
+
+<div class="notice" id="notice" hidden></div>
+
+<!-- ══════════ график онлайна ══════════ -->
+<section class="panel chart-panel">
+  <div class="panel-head">
+    <h2>Онлайн за сутки</h2>
+    <div class="legend">
+      <span class="lg lg-all">всего: <b id="lg-all-now">…</b></span>
+      <span class="lg lg-ru">на русских: <b id="lg-ru-now">…</b></span>
+    </div>
+  </div>
+  <div class="chart-box"><div class="chart" id="chart"></div></div>
+  <p class="chart-note" id="chart-note"></p>
+</section>
+
+<!-- ══════════ топ сейчас ══════════ -->
+<section class="top5" id="top5" aria-label="топ серверов сейчас"></section>
+
+<!-- ══════════ фильтры ══════════ -->
+<section class="controls" id="controls">
+  <input id="q" type="search" placeholder="поиск: название, IP, режим…    ( / )" autocomplete="off" spellcheck="false" />
+  <label class="sel"><span>язык</span>
+    <select id="f-lang">
+      <option value="all">любой</option>
+      <option value="ru">русский</option>
+      <option value="en">английский</option>
+      <option value="other">другие</option>
+    </select>
+  </label>
+  <label class="sel"><span>режим</span>
+    <select id="f-mode">
+      <option value="all">любой</option>
+      <option value="rp">РП</option>
+      <option value="dm">ДМ</option>
+      <option value="stunt">стант</option>
+      <option value="drift">дрифт</option>
+      <option value="race">гонки</option>
+      <option value="surv">выживание</option>
+      <option value="other">другое</option>
+    </select>
+  </label>
+  <label class="sel"><span>версия</span>
+    <select id="f-ver">
+      <option value="all">любая</option>
+      <option value="omp">open.mp</option>
+      <option value="samp">SA-MP 0.3.x</option>
+    </select>
+  </label>
+  <label class="sel"><span>сортировка</span>
+    <select id="sort">
+      <option value="players">игроков: больше</option>
+      <option value="fill">заполненность</option>
+      <option value="slots">мест: больше</option>
+      <option value="name">по названию</option>
+    </select>
+  </label>
+  <label class="tgl"><input type="checkbox" id="f-online" checked /> только с людьми</label>
+  <label class="tgl"><input type="checkbox" id="f-nopass" /> без пароля</label>
+  <label class="tgl"><input type="checkbox" id="f-fav" /> ★ избранное</label>
+</section>
+
+<div class="count-line"><span id="count">…</span> <button class="btn btn-mini" id="btn-reset" hidden>сбросить всё</button></div>
+
+<!-- ══════════ браузер серверов ══════════ -->
+<main class="browser">
+  <div class="thead" aria-hidden="true">
+    <span>#</span><span>сервер</span><span>режим</span><span>версия</span><span>игроки</span><span>заполнено</span><span>сутки</span><span></span>
+  </div>
+  <div id="rows"></div>
+  <button class="btn btn-more" id="btn-more" hidden>показать ещё</button>
+  <div class="empty" id="empty" hidden>Пусто. То ли фильтры слишком строгие, то ли все разошлись по домам.</div>
+</main>
+
+<!-- ══════════ подвал ══════════ -->
+<footer class="foot">
+  <div class="foot-col">
+    <h3>что это</h3>
+    <p>Живой список серверов SA-MP и open.mp. Данные тянем из открытого списка open.mp прямо из твоего браузера,
+       история копится каждые 15 минут. Ничего не логируем, аккаунт не нужен.</p>
+    <p class="dim">Проект не связан с open.mp и командой SA-MP. Играть нужно клиентом SA-MP или лаунчером open.mp.</p>
+  </div>
+  <div class="foot-col">
+    <h3>как подключиться</h3>
+    <p>1. Жми <b>«Играть»</b> у сервера - браузер предложит открыть SA-MP или лаунчер open.mp.</p>
+    <p>2. Или скопируй IP и вставь в свой клиент. Всё, ты в игре.</p>
+    <p id="hist-since" class="dim"></p>
+  </div>
+  <div class="foot-col">
+    <h3>ссылки</h3>
+    <p><a href="https://github.com/hilsetapp/samp-pulse" target="_blank" rel="noopener">исходники на GitHub</a></p>
+    <p><a href="https://github.com/hilsetapp/samp-pulse#readme" target="_blank" rel="noopener">как поставить себе</a></p>
+    <p><a href="https://open.mp" target="_blank" rel="noopener">open.mp</a> · <a href="https://www.sa-mp.mp" target="_blank" rel="noopener">SA-MP</a></p>
+  </div>
+</footer>
+
+<!-- ══════════ карточка сервера ══════════ -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-back" id="modal-back"></div>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <button class="modal-x" id="modal-x" aria-label="закрыть">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

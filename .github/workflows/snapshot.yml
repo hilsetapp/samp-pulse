@@ -1,0 +1,63 @@
+name: snapshot
+
+# Снимок списка серверов и запись истории в ветку data.
+# Запускается каждые 15 минут (по возможности) и руками с вкладки Actions.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Код (ветка main)
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Данные (ветка data, если уже существует)
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: data
+        continue-on-error: true
+
+      - name: Подготовить папку данных
+        run: |
+          if [ ! -d data/.git ]; then
+            echo "ветки data нет - создаём с нуля"
+            rm -rf data
+            mkdir -p data
+            cd data
+            git init -q -b data
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          fi
+          cd data
+          git config user.name "samp-pulse-bot"
+          git config user.email "samp-pulse-bot@users.noreply.github.com"
+
+      - name: Собрать снимок
+        run: |
+          cd data
+          python3 ../app/tools/snapshot.py
+
+      - name: Записать в ветку data
+        run: |
+          cd data
+          git add -A
+          if git diff --cached --quiet; then
+            echo "изменений нет, ничего не пишем"
+          else
+            git commit -q -m "снимок $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git push -q origin data
+            echo "готово: $(git log --oneline -1)"
+          fi
